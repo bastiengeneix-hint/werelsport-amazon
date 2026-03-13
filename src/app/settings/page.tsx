@@ -255,7 +255,17 @@ function SettingsContent() {
       const res = await fetch("/api/products");
       if (res.ok) {
         const data = await res.json();
-        setProducts(data);
+        const list = Array.isArray(data) ? data : (data.products ?? []);
+        setProducts(
+          list.map((p: Record<string, unknown>) => ({
+            asin: p.asin as string,
+            title: (p.title as string) || "",
+            purchasePrice: Number(p.purchase_price ?? p.purchasePrice ?? 0),
+            supplier: (p.supplier as string) || "",
+            leadTime: Number(p.lead_time_days ?? p.leadTime ?? 0),
+            reorderBuffer: Number(p.reorder_buffer_days ?? p.reorderBuffer ?? 0),
+          }))
+        );
       }
     } catch {
       // silently fail
@@ -285,10 +295,26 @@ function SettingsContent() {
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
+        body: JSON.stringify({
+          asin: updated.asin,
+          title: updated.title,
+          purchase_price: updated.purchasePrice,
+          supplier: updated.supplier,
+          lead_time_days: updated.leadTime,
+          reorder_buffer_days: updated.reorderBuffer,
+        }),
       });
       if (res.ok) {
-        const saved = await res.json();
+        const data = await res.json();
+        const raw = data.product ?? data;
+        const saved: Product = {
+          asin: raw.asin,
+          title: raw.title || "",
+          purchasePrice: Number(raw.purchase_price ?? raw.purchasePrice ?? 0),
+          supplier: raw.supplier || "",
+          leadTime: Number(raw.lead_time_days ?? raw.leadTime ?? 0),
+          reorderBuffer: Number(raw.reorder_buffer_days ?? raw.reorderBuffer ?? 0),
+        };
         setProducts((prev) => prev.map((p) => (p.asin === asin ? saved : p)));
         setEditedProducts((prev) => {
           const next = { ...prev };
@@ -310,10 +336,26 @@ function SettingsContent() {
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newProduct),
+        body: JSON.stringify({
+          asin: newProduct.asin,
+          title: newProduct.title,
+          purchase_price: newProduct.purchasePrice,
+          supplier: newProduct.supplier,
+          lead_time_days: newProduct.leadTime,
+          reorder_buffer_days: newProduct.reorderBuffer,
+        }),
       });
       if (res.ok) {
-        const saved = await res.json();
+        const data = await res.json();
+        const raw = data.product ?? data;
+        const saved: Product = {
+          asin: raw.asin,
+          title: raw.title || "",
+          purchasePrice: Number(raw.purchase_price ?? raw.purchasePrice ?? 0),
+          supplier: raw.supplier || "",
+          leadTime: Number(raw.lead_time_days ?? raw.leadTime ?? 0),
+          reorderBuffer: Number(raw.reorder_buffer_days ?? raw.reorderBuffer ?? 0),
+        };
         setProducts((prev) => [...prev, saved]);
         setNewProduct({
           asin: "",
@@ -357,7 +399,14 @@ function SettingsContent() {
           await fetch("/api/products", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(row),
+            body: JSON.stringify({
+              asin: row.asin,
+              title: row.title,
+              purchase_price: row.purchasePrice,
+              supplier: row.supplier,
+              lead_time_days: row.leadTime,
+              reorder_buffer_days: row.reorderBuffer,
+            }),
           });
         } catch {
           // continue
