@@ -23,7 +23,8 @@ export async function GET(request: NextRequest) {
 
   const clientId = process.env.AMAZON_CLIENT_ID!
   const clientSecret = process.env.AMAZON_CLIENT_SECRET!
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000"
+  const baseUrl = process.env.NEXTAUTH_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
   const callbackUrl = `${baseUrl}/api/amazon/callback`
 
   try {

@@ -7,7 +7,8 @@ export async function GET() {
     return NextResponse.json({ error: "AMAZON_CLIENT_ID non configuré" }, { status: 500 })
   }
 
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000"
+  const baseUrl = process.env.NEXTAUTH_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
   const callbackUrl = `${baseUrl}/api/amazon/callback`
   const state = crypto.randomBytes(16).toString("hex")
 
