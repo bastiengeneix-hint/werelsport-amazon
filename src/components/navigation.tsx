@@ -11,6 +11,7 @@ import {
   Settings,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { MarketplaceSelector } from "@/components/marketplace-selector"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -29,6 +30,9 @@ export function Navigation() {
       <div className="flex h-16 items-center border-b px-6">
         <h1 className="text-lg font-bold">DAF Tool</h1>
         <span className="ml-2 text-xs text-muted-foreground">Amazon FBA</span>
+      </div>
+      <div className="border-b py-3">
+        <MarketplaceSelector />
       </div>
       <nav className="space-y-1 p-4">
         {navItems.map((item) => {

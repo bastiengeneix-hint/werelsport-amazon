@@ -4,6 +4,7 @@ import {
   fetchOrderItems,
   fetchInventory,
   fetchFinancialEvents,
+  getActiveMarketplaceId,
   withRetry,
 } from "@/lib/amazon-client"
 import { supabaseAdmin } from "@/lib/supabase"
@@ -12,15 +13,18 @@ export const maxDuration = 300 // 5 minutes for initial sync
 
 export async function POST(request: Request) {
   try {
-    const { fullSync } = await request.json().catch(() => ({ fullSync: false }))
+    const { fullSync, marketplaceId: requestedMpId } = await request
+      .json()
+      .catch(() => ({ fullSync: false, marketplaceId: undefined }))
 
+    const marketplaceId = requestedMpId || (await getActiveMarketplaceId())
     const daysBack = fullSync ? 90 : 1
     const createdAfter = new Date(
       Date.now() - daysBack * 24 * 60 * 60 * 1000
     ).toISOString()
 
     // 1. Sync Orders
-    const orders = await withRetry(() => fetchOrders(createdAfter))
+    const orders = await withRetry(() => fetchOrders(createdAfter, marketplaceId))
     let syncedOrders = 0
 
     for (const order of orders) {
@@ -69,6 +73,7 @@ export async function POST(request: Request) {
             referral_fee: referralFee,
             net_revenue: netRevenue,
             order_date: order.PurchaseDate,
+            marketplace_id: marketplaceId,
             synced_at: new Date().toISOString(),
           },
           { onConflict: "order_id" }
@@ -78,7 +83,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Sync Inventory
-    const inventoryItems = await withRetry(() => fetchInventory())
+    const inventoryItems = await withRetry(() => fetchInventory(marketplaceId))
     let syncedInventory = 0
 
     for (const item of inventoryItems) {
@@ -86,17 +91,20 @@ export async function POST(request: Request) {
         asin: item.asin,
         quantity_available: item.totalQuantity || 0,
         quantity_inbound: item.inboundReceivingQuantity || 0,
+        marketplace_id: marketplaceId,
       })
       syncedInventory++
     }
 
     return NextResponse.json({
       success: true,
+      message: `Synchronisation terminée pour marketplace ${marketplaceId}.`,
       synced: {
         orders: syncedOrders,
         inventory: syncedInventory,
       },
       period: `${daysBack} days`,
+      marketplaceId,
     })
   } catch (error: unknown) {
     const message =

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Card,
   CardHeader,
@@ -20,8 +21,17 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-// import { formatCurrency } from "@/lib/utils";
-import { Settings, Upload, RefreshCw, Save, Plus } from "lucide-react";
+import {
+  Settings,
+  Upload,
+  RefreshCw,
+  Save,
+  Plus,
+  LogIn,
+  LogOut,
+  Check,
+  Globe,
+} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,9 +51,17 @@ interface SyncResult {
   details?: string;
 }
 
-interface ConnectionStatus {
-  connected: boolean;
-  checking: boolean;
+interface AmazonAccount {
+  sellerId: string;
+  region: string;
+  connectedAt: string | null;
+}
+
+interface ConnectedMarketplace {
+  marketplace_id: string;
+  country_code: string;
+  name: string;
+  is_active: boolean;
 }
 
 interface AlertSettings {
@@ -53,22 +71,43 @@ interface AlertSettings {
   marginAlertThreshold: number;
 }
 
+const FLAGS: Record<string, string> = {
+  FR: "\u{1F1EB}\u{1F1F7}", DE: "\u{1F1E9}\u{1F1EA}", ES: "\u{1F1EA}\u{1F1F8}",
+  IT: "\u{1F1EE}\u{1F1F9}", UK: "\u{1F1EC}\u{1F1E7}", NL: "\u{1F1F3}\u{1F1F1}",
+  SE: "\u{1F1F8}\u{1F1EA}", PL: "\u{1F1F5}\u{1F1F1}", BE: "\u{1F1E7}\u{1F1EA}",
+  EG: "\u{1F1EA}\u{1F1EC}", TR: "\u{1F1F9}\u{1F1F7}", SA: "\u{1F1F8}\u{1F1E6}",
+  AE: "\u{1F1E6}\u{1F1EA}", IN: "\u{1F1EE}\u{1F1F3}",
+  US: "\u{1F1FA}\u{1F1F8}", CA: "\u{1F1E8}\u{1F1E6}", MX: "\u{1F1F2}\u{1F1FD}",
+  BR: "\u{1F1E7}\u{1F1F7}", JP: "\u{1F1EF}\u{1F1F5}", AU: "\u{1F1E6}\u{1F1FA}",
+  SG: "\u{1F1F8}\u{1F1EC}",
+};
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  // ── SP-API tab state ──────────────────────────────────────────────────────
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    connected: false,
-    checking: false,
-  });
+  return (
+    <Suspense fallback={<div className="container mx-auto py-8 px-4">Chargement...</div>}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
+  const searchParams = useSearchParams();
+
+  // ── Amazon account state ────────────────────────────────────────────────
+  const [account, setAccount] = useState<AmazonAccount | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectedMarketplaces, setConnectedMarketplaces] = useState<ConnectedMarketplace[]>([]);
+  const [loadingAccount, setLoadingAccount] = useState(true);
   const [syncStatus, setSyncStatus] = useState<SyncResult | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionOk, setConnectionOk] = useState<boolean | null>(null);
 
   // ── Couts d'achat tab state ───────────────────────────────────────────────
   const [products, setProducts] = useState<Product[]>([]);
-  const [editedProducts, setEditedProducts] = useState<Record<string, Product>>(
-    {}
-  );
+  const [editedProducts, setEditedProducts] = useState<Record<string, Product>>({});
   const [savingRows, setSavingRows] = useState<Record<string, boolean>>({});
   const [newProduct, setNewProduct] = useState<Product>({
     asin: "",
@@ -79,7 +118,6 @@ export default function SettingsPage() {
     reorderBuffer: 0,
   });
   const [isAddingProduct, setIsAddingProduct] = useState(false);
-  const [csvFile, setCsvFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Seuils & Alertes tab state ────────────────────────────────────────────
@@ -91,33 +129,95 @@ export default function SettingsPage() {
   });
   const [isSavingAlerts, setIsSavingAlerts] = useState(false);
 
-  // ── Fetch products on mount ───────────────────────────────────────────────
+  // ── Load account + products on mount ────────────────────────────────────
   useEffect(() => {
+    loadAccount();
     fetchProducts();
   }, []);
 
-  async function fetchProducts() {
+  // ── Show success banner if redirected from OAuth ────────────────────────
+  useEffect(() => {
+    if (searchParams.get("connected") === "true") {
+      setSyncStatus({
+        success: true,
+        message: "Compte Amazon connect\u00e9 avec succ\u00e8s ! Vos marketplaces ont \u00e9t\u00e9 d\u00e9couvertes automatiquement.",
+      });
+    }
+    if (searchParams.get("error")) {
+      setSyncStatus({
+        success: false,
+        message: `Erreur de connexion : ${searchParams.get("error")}`,
+      });
+    }
+  }, [searchParams]);
+
+  async function loadAccount() {
+    setLoadingAccount(true);
     try {
-      const res = await fetch("/api/products");
+      const res = await fetch("/api/amazon/account");
       if (res.ok) {
         const data = await res.json();
-        setProducts(data);
+        setIsConnected(data.connected);
+        setAccount(data.account);
+        setConnectedMarketplaces(data.marketplaces || []);
       }
     } catch {
-      // silently fail — API may not be implemented yet
+      // silently fail
+    } finally {
+      setLoadingAccount(false);
     }
   }
 
-  // ── SP-API actions ────────────────────────────────────────────────────────
+  async function handleConnectAmazon() {
+    window.location.href = "/api/amazon/auth";
+  }
+
+  async function handleDisconnect() {
+    if (!confirm("D\u00e9connecter votre compte Amazon ? Les donn\u00e9es sync\u00e9es seront conserv\u00e9es.")) return;
+    try {
+      await fetch("/api/amazon/account", { method: "DELETE" });
+      setIsConnected(false);
+      setAccount(null);
+      setConnectedMarketplaces([]);
+      setConnectionOk(null);
+    } catch {
+      // silently fail
+    }
+  }
 
   async function handleTestConnection() {
-    setConnectionStatus({ connected: false, checking: true });
+    setTestingConnection(true);
+    setConnectionOk(null);
     try {
       const res = await fetch("/api/amazon/test-connection", { method: "POST" });
       const data = await res.json();
-      setConnectionStatus({ connected: data.connected ?? res.ok, checking: false });
+      setConnectionOk(data.connected ?? res.ok);
     } catch {
-      setConnectionStatus({ connected: false, checking: false });
+      setConnectionOk(false);
+    } finally {
+      setTestingConnection(false);
+    }
+  }
+
+  async function handleToggleMarketplace(mpId: string, currentActive: boolean) {
+    setConnectedMarketplaces((prev) =>
+      prev.map((m) =>
+        m.marketplace_id === mpId ? { ...m, is_active: !currentActive } : m
+      )
+    );
+    try {
+      await fetch("/api/amazon/marketplaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marketplaceId: mpId, isActive: !currentActive }),
+      });
+    } catch {
+      // revert
+      setConnectedMarketplaces((prev) =>
+        prev.map((m) =>
+          m.marketplace_id === mpId ? { ...m, is_active: currentActive } : m
+        )
+      );
     }
   }
 
@@ -134,25 +234,46 @@ export default function SettingsPage() {
       setSyncStatus({
         success: res.ok,
         message: res.ok
-          ? data.message ?? "Synchronisation terminée avec succès."
+          ? data.message ?? "Synchronisation termin\u00e9e avec succ\u00e8s."
           : data.error ?? "Erreur lors de la synchronisation.",
         details: data.details,
       });
     } catch {
       setSyncStatus({
         success: false,
-        message: "Impossible de contacter l'API de synchronisation.",
+        message: "Impossible de contacter l\u2019API de synchronisation.",
       });
     } finally {
       setIsSyncing(false);
     }
   }
 
-  // ── Couts d'achat actions ─────────────────────────────────────────────────
+  // ── Products actions ────────────────────────────────────────────────────
+
+  async function fetchProducts() {
+    try {
+      const res = await fetch("/api/products");
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.products ?? []);
+        setProducts(
+          list.map((p: Record<string, unknown>) => ({
+            asin: p.asin as string,
+            title: (p.title as string) || "",
+            purchasePrice: Number(p.purchase_price ?? p.purchasePrice ?? 0),
+            supplier: (p.supplier as string) || "",
+            leadTime: Number(p.lead_time_days ?? p.leadTime ?? 0),
+            reorderBuffer: Number(p.reorder_buffer_days ?? p.reorderBuffer ?? 0),
+          }))
+        );
+      }
+    } catch {
+      // silently fail
+    }
+  }
 
   function getEditedProduct(product: Product): Product {
-    const key = product.asin;
-    return editedProducts[key] ?? product;
+    return editedProducts[product.asin] ?? product;
   }
 
   function handleProductFieldChange(
@@ -174,13 +295,27 @@ export default function SettingsPage() {
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
+        body: JSON.stringify({
+          asin: updated.asin,
+          title: updated.title,
+          purchase_price: updated.purchasePrice,
+          supplier: updated.supplier,
+          lead_time_days: updated.leadTime,
+          reorder_buffer_days: updated.reorderBuffer,
+        }),
       });
       if (res.ok) {
-        const saved = await res.json();
-        setProducts((prev) =>
-          prev.map((p) => (p.asin === asin ? saved : p))
-        );
+        const data = await res.json();
+        const raw = data.product ?? data;
+        const saved: Product = {
+          asin: raw.asin,
+          title: raw.title || "",
+          purchasePrice: Number(raw.purchase_price ?? raw.purchasePrice ?? 0),
+          supplier: raw.supplier || "",
+          leadTime: Number(raw.lead_time_days ?? raw.leadTime ?? 0),
+          reorderBuffer: Number(raw.reorder_buffer_days ?? raw.reorderBuffer ?? 0),
+        };
+        setProducts((prev) => prev.map((p) => (p.asin === asin ? saved : p)));
         setEditedProducts((prev) => {
           const next = { ...prev };
           delete next[asin];
@@ -201,10 +336,26 @@ export default function SettingsPage() {
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newProduct),
+        body: JSON.stringify({
+          asin: newProduct.asin,
+          title: newProduct.title,
+          purchase_price: newProduct.purchasePrice,
+          supplier: newProduct.supplier,
+          lead_time_days: newProduct.leadTime,
+          reorder_buffer_days: newProduct.reorderBuffer,
+        }),
       });
       if (res.ok) {
-        const saved = await res.json();
+        const data = await res.json();
+        const raw = data.product ?? data;
+        const saved: Product = {
+          asin: raw.asin,
+          title: raw.title || "",
+          purchasePrice: Number(raw.purchase_price ?? raw.purchasePrice ?? 0),
+          supplier: raw.supplier || "",
+          leadTime: Number(raw.lead_time_days ?? raw.leadTime ?? 0),
+          reorderBuffer: Number(raw.reorder_buffer_days ?? raw.reorderBuffer ?? 0),
+        };
         setProducts((prev) => [...prev, saved]);
         setNewProduct({
           asin: "",
@@ -225,13 +376,11 @@ export default function SettingsPage() {
   function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setCsvFile(file);
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target?.result as string;
       if (!text) return;
       const lines = text.trim().split("\n");
-      // Expect header: asin,title,purchasePrice,supplier,leadTime,reorderBuffer
       const rows = lines.slice(1).map((line) => {
         const [asin, title, purchasePrice, supplier, leadTime, reorderBuffer] =
           line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
@@ -250,14 +399,20 @@ export default function SettingsPage() {
           await fetch("/api/products", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(row),
+            body: JSON.stringify({
+              asin: row.asin,
+              title: row.title,
+              purchase_price: row.purchasePrice,
+              supplier: row.supplier,
+              lead_time_days: row.leadTime,
+              reorder_buffer_days: row.reorderBuffer,
+            }),
           });
         } catch {
           // continue
         }
       }
       await fetchProducts();
-      setCsvFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
     reader.readAsText(file);
@@ -286,105 +441,127 @@ export default function SettingsPage() {
     <div className="container mx-auto py-8 px-4 max-w-5xl">
       <div className="flex items-center gap-3 mb-8">
         <Settings className="h-7 w-7 text-muted-foreground" />
-        <h1 className="text-2xl font-bold">Paramètres</h1>
+        <h1 className="text-2xl font-bold">Param\u00e8tres</h1>
       </div>
 
       <Tabs defaultValue="spapi">
         <TabsList className="mb-6">
-          <TabsTrigger value="spapi">Configuration SP-API</TabsTrigger>
-          <TabsTrigger value="couts">Coûts d&apos;achat</TabsTrigger>
+          <TabsTrigger value="spapi">Compte Amazon</TabsTrigger>
+          <TabsTrigger value="marketplaces">Marketplaces</TabsTrigger>
+          <TabsTrigger value="couts">Co\u00fbts d&apos;achat</TabsTrigger>
           <TabsTrigger value="seuils">Seuils &amp; Alertes</TabsTrigger>
         </TabsList>
 
-        {/* ── Tab 1: SP-API ─────────────────────────────────────────────── */}
+        {/* ── Tab 1: Compte Amazon ─────────────────────────────────────── */}
         <TabsContent value="spapi">
           <Card>
             <CardHeader>
-              <CardTitle>Configuration Amazon SP-API</CardTitle>
+              <CardTitle>Connexion Amazon SP-API</CardTitle>
               <CardDescription>
-                Les identifiants sont lus depuis les variables d&apos;environnement
-                du serveur. Ces champs sont affichés en lecture seule.
+                Connectez votre compte Seller Central via OAuth pour
+                synchroniser automatiquement vos donn\u00e9es.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Amazon Client ID</label>
-                  <Input
-                    readOnly
-                    value="••••••••••••••••"
-                    className="bg-muted cursor-not-allowed font-mono"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Défini via <code>AMAZON_CLIENT_ID</code>
-                  </p>
+              {loadingAccount ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Chargement...
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">
-                    Amazon Client Secret
-                  </label>
-                  <Input
-                    readOnly
-                    value="••••••••••••••••"
-                    className="bg-muted cursor-not-allowed font-mono"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Défini via <code>AMAZON_CLIENT_SECRET</code>
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Marketplace ID</label>
-                  <Input
-                    readOnly
-                    value={process.env.NEXT_PUBLIC_MARKETPLACE_ID ?? "A13V1IB3VIYZZH"}
-                    className="bg-muted cursor-not-allowed font-mono"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Défini via <code>MARKETPLACE_ID</code>
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">
-                    Statut de connexion
-                  </label>
-                  <div className="flex items-center h-10">
-                    {connectionStatus.checking ? (
-                      <Badge variant="secondary">Vérification…</Badge>
-                    ) : connectionStatus.connected ? (
+              ) : isConnected && account ? (
+                <>
+                  {/* Connected state */}
+                  <div className="rounded-lg border bg-green-50 p-4 space-y-3">
+                    <div className="flex items-center gap-2">
                       <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                        Connecté
+                        Connect\u00e9
                       </Badge>
-                    ) : (
-                      <Badge variant="destructive">Déconnecté</Badge>
+                      <span className="text-sm text-green-800">
+                        Seller ID : <code className="font-mono">{account.sellerId}</code>
+                      </span>
+                    </div>
+                    {account.connectedAt && (
+                      <p className="text-xs text-green-700">
+                        Connect\u00e9 le{" "}
+                        {new Date(account.connectedAt).toLocaleDateString("fr-FR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
                     )}
+                    <p className="text-xs text-green-700">
+                      R\u00e9gion : <strong>{account.region?.toUpperCase()}</strong>
+                      {" \u2014 "}
+                      {connectedMarketplaces.filter((m) => m.is_active).length} marketplace(s) active(s)
+                    </p>
                   </div>
-                </div>
-              </div>
 
-              <div className="flex flex-wrap gap-3 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={handleTestConnection}
-                  disabled={connectionStatus.checking}
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 mr-2 ${
-                      connectionStatus.checking ? "animate-spin" : ""
-                    }`}
-                  />
-                  Tester la connexion
-                </Button>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={handleTestConnection}
+                      disabled={testingConnection}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 mr-2 ${testingConnection ? "animate-spin" : ""}`}
+                      />
+                      Tester la connexion
+                    </Button>
 
-                <Button onClick={handleManualSync} disabled={isSyncing}>
-                  <RefreshCw
-                    className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`}
-                  />
-                  {isSyncing ? "Synchronisation…" : "Sync manuelle"}
-                </Button>
-              </div>
+                    {connectionOk !== null && (
+                      <Badge
+                        variant={connectionOk ? "default" : "destructive"}
+                        className={connectionOk ? "bg-green-100 text-green-800" : ""}
+                      >
+                        {connectionOk ? "Connexion OK" : "Connexion \u00e9chou\u00e9e"}
+                      </Badge>
+                    )}
+
+                    <Button onClick={handleManualSync} disabled={isSyncing}>
+                      <RefreshCw
+                        className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`}
+                      />
+                      {isSyncing ? "Synchronisation\u2026" : "Sync manuelle"}
+                    </Button>
+
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDisconnect}
+                    >
+                      <LogOut className="h-4 w-4 mr-2" />
+                      D\u00e9connecter
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Disconnected state */}
+                  <div className="rounded-lg border border-dashed p-6 text-center space-y-4">
+                    <Globe className="h-10 w-10 mx-auto text-muted-foreground" />
+                    <div>
+                      <p className="font-medium">Aucun compte Amazon connect\u00e9</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Cliquez ci-dessous pour autoriser l&apos;acc\u00e8s \u00e0 votre
+                        compte Seller Central. Vos marketplaces seront
+                        d\u00e9couvertes automatiquement.
+                      </p>
+                    </div>
+                    <Button size="lg" onClick={handleConnectAmazon}>
+                      <LogIn className="h-5 w-5 mr-2" />
+                      Connecter mon compte Amazon
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      N\u00e9cessite un <code>AMAZON_CLIENT_ID</code> et{" "}
+                      <code>AMAZON_CLIENT_SECRET</code> dans les variables
+                      d&apos;environnement du serveur.
+                    </p>
+                  </div>
+                </>
+              )}
 
               {syncStatus && (
                 <div
@@ -404,14 +581,85 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Tab 2: Coûts d'achat ──────────────────────────────────────── */}
+        {/* ── Tab 2: Marketplaces ──────────────────────────────────────── */}
+        <TabsContent value="marketplaces">
+          <Card>
+            <CardHeader>
+              <CardTitle>Marketplaces</CardTitle>
+              <CardDescription>
+                G\u00e9rez les marketplaces sur lesquelles vous vendez.
+                Activez ou d\u00e9sactivez celles que vous souhaitez suivre.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {connectedMarketplaces.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Globe className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Aucune marketplace d\u00e9couverte.</p>
+                  <p className="text-sm mt-1">
+                    Connectez votre compte Amazon dans l&apos;onglet pr\u00e9c\u00e9dent
+                    pour d\u00e9couvrir vos marketplaces.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12"></TableHead>
+                        <TableHead>Marketplace</TableHead>
+                        <TableHead className="w-40">ID</TableHead>
+                        <TableHead className="w-24 text-center">Active</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {connectedMarketplaces.map((mp) => (
+                        <TableRow key={mp.marketplace_id}>
+                          <TableCell className="text-xl">
+                            {FLAGS[mp.country_code] || "\u{1F310}"}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {mp.name}
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              ({mp.country_code})
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {mp.marketplace_id}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleToggleMarketplace(mp.marketplace_id, mp.is_active)
+                              }
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                                mp.is_active
+                                  ? "bg-green-100 border-green-300 text-green-700"
+                                  : "bg-muted border-transparent text-muted-foreground hover:border-border"
+                              }`}
+                            >
+                              {mp.is_active && <Check className="h-4 w-4" />}
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab 3: Co\u00fbts d'achat ──────────────────────────────────── */}
         <TabsContent value="couts">
           <Card className="mb-6">
             <CardHeader>
-              <CardTitle>Coûts d&apos;achat</CardTitle>
+              <CardTitle>Co\u00fbts d&apos;achat</CardTitle>
               <CardDescription>
-                Gérez les prix d&apos;achat, fournisseurs et délais de réapprovisionnement
-                pour chaque produit.
+                G\u00e9rez les prix d&apos;achat, fournisseurs et d\u00e9lais de
+                r\u00e9approvisionnement pour chaque produit.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -433,24 +681,16 @@ export default function SettingsPage() {
                 />
               </div>
 
-              {csvFile && (
-                <p className="text-xs text-muted-foreground mb-3">
-                  Fichier sélectionné : {csvFile.name} — import en cours…
-                </p>
-              )}
-
               <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-32">ASIN</TableHead>
                       <TableHead>Titre</TableHead>
-                      <TableHead className="w-36">
-                        Prix d&apos;achat (€)
-                      </TableHead>
+                      <TableHead className="w-36">Prix d&apos;achat (\u20ac)</TableHead>
                       <TableHead className="w-36">Fournisseur</TableHead>
                       <TableHead className="w-32">Lead time (j)</TableHead>
-                      <TableHead className="w-36">Buffer réachat (j)</TableHead>
+                      <TableHead className="w-36">Buffer r\u00e9achat (j)</TableHead>
                       <TableHead className="w-20"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -589,7 +829,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium">
-                    Prix d&apos;achat (€)
+                    Prix d&apos;achat (\u20ac)
                   </label>
                   <Input
                     type="number"
@@ -632,7 +872,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium">
-                    Buffer réachat (jours)
+                    Buffer r\u00e9achat (jours)
                   </label>
                   <Input
                     type="number"
@@ -657,19 +897,19 @@ export default function SettingsPage() {
                 }
               >
                 <Plus className="h-4 w-4 mr-2" />
-                {isAddingProduct ? "Ajout en cours…" : "Ajouter le produit"}
+                {isAddingProduct ? "Ajout en cours\u2026" : "Ajouter le produit"}
               </Button>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── Tab 3: Seuils & Alertes ───────────────────────────────────── */}
+        {/* ── Tab 4: Seuils & Alertes ───────────────────────────────────── */}
         <TabsContent value="seuils">
           <Card>
             <CardHeader>
               <CardTitle>Seuils &amp; Alertes</CardTitle>
               <CardDescription>
-                Configurez les valeurs par défaut et les seuils d&apos;alerte
+                Configurez les valeurs par d\u00e9faut et les seuils d&apos;alerte
                 pour la gestion des stocks.
               </CardDescription>
             </CardHeader>
@@ -677,7 +917,7 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-sm font-medium">
-                    Lead time par défaut (jours)
+                    Lead time par d\u00e9faut (jours)
                   </label>
                   <Input
                     type="number"
@@ -691,13 +931,13 @@ export default function SettingsPage() {
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    Appliqué aux produits sans lead time spécifique.
+                    Appliqu\u00e9 aux produits sans lead time sp\u00e9cifique.
                   </p>
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-sm font-medium">
-                    Buffer de réachat par défaut (jours)
+                    Buffer de r\u00e9achat par d\u00e9faut (jours)
                   </label>
                   <Input
                     type="number"
@@ -711,7 +951,7 @@ export default function SettingsPage() {
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    Jours de sécurité avant la date de rupture estimée.
+                    Jours de s\u00e9curit\u00e9 avant la date de rupture estim\u00e9e.
                   </p>
                 </div>
 
@@ -733,7 +973,7 @@ export default function SettingsPage() {
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    Une alerte est déclenchée si la marge descend sous ce seuil.
+                    Une alerte est d\u00e9clench\u00e9e si la marge descend sous ce seuil.
                   </p>
                 </div>
 
@@ -767,7 +1007,9 @@ export default function SettingsPage() {
                       />
                     </button>
                     <span className="text-sm text-muted-foreground">
-                      {alertSettings.emailNotifications ? "Activées" : "Désactivées"}{" "}
+                      {alertSettings.emailNotifications
+                        ? "Activ\u00e9es"
+                        : "D\u00e9sactiv\u00e9es"}{" "}
                       <span className="italic">(placeholder)</span>
                     </span>
                   </div>
@@ -776,7 +1018,9 @@ export default function SettingsPage() {
 
               <Button onClick={handleSaveAlertSettings} disabled={isSavingAlerts}>
                 <Save className="h-4 w-4 mr-2" />
-                {isSavingAlerts ? "Enregistrement…" : "Enregistrer les paramètres"}
+                {isSavingAlerts
+                  ? "Enregistrement\u2026"
+                  : "Enregistrer les param\u00e8tres"}
               </Button>
             </CardContent>
           </Card>
