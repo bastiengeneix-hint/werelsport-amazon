@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/utils";
+import { DEMO_MODE, generateDemoOrders } from "@/lib/demo-data";
 import { ArrowUpDown } from "lucide-react";
 
 interface OrderProduct {
@@ -168,6 +169,14 @@ export default function ProductsPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
+
+    if (DEMO_MODE) {
+      const demoOrders = generateDemoOrders(parseInt(period));
+      setOrders(demoOrders as unknown as Order[]);
+      setLoading(false);
+      return;
+    }
+
     fetch(`/api/amazon/orders?days=${period}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Erreur ${res.status}`);

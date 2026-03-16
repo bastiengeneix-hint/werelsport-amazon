@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, Download, Package } from "lucide-react"
 import { formatCurrency, formatNumber } from "@/lib/utils"
+import { DEMO_MODE, generateDemoOrders, generateDemoInventory } from "@/lib/demo-data"
 
 interface Product {
   title: string
@@ -55,20 +56,28 @@ export default function AlertsPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [ordersRes, inventoryRes] = await Promise.all([
-          fetch("/api/amazon/orders?days=30"),
-          fetch("/api/amazon/inventory"),
-        ])
+        let orders: Order[]
+        let inventory: InventoryItem[]
 
-        if (!ordersRes.ok || !inventoryRes.ok) {
-          throw new Error("Failed to fetch data")
+        if (DEMO_MODE) {
+          orders = generateDemoOrders(30) as unknown as Order[]
+          inventory = generateDemoInventory() as unknown as InventoryItem[]
+        } else {
+          const [ordersRes, inventoryRes] = await Promise.all([
+            fetch("/api/amazon/orders?days=30"),
+            fetch("/api/amazon/inventory"),
+          ])
+
+          if (!ordersRes.ok || !inventoryRes.ok) {
+            throw new Error("Failed to fetch data")
+          }
+
+          const ordersData: { orders: Order[] } = await ordersRes.json()
+          const inventoryData: { inventory: InventoryItem[] } = await inventoryRes.json()
+
+          orders = ordersData.orders
+          inventory = inventoryData.inventory
         }
-
-        const ordersData: { orders: Order[] } = await ordersRes.json()
-        const inventoryData: { inventory: InventoryItem[] } = await inventoryRes.json()
-
-        const orders = ordersData.orders
-        const inventory = inventoryData.inventory
 
         // Build velocity map: asin -> total units sold in 30 days
         const velocityMap = new Map<string, { totalQty: number; product: Product }>()

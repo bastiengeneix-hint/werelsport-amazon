@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatNumber } from "@/lib/utils";
+import { DEMO_MODE, generateDemoOrders, generateDemoInventory } from "@/lib/demo-data";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -196,21 +197,30 @@ export default function DashboardPage() {
       setError(null);
 
       try {
-        const [ordersRes, inventoryRes] = await Promise.all([
-          fetch(`/api/amazon/orders?days=${days}`),
-          fetch(`/api/amazon/inventory`),
-        ]);
+        let orders, inventory;
 
-        if (!ordersRes.ok || !inventoryRes.ok) {
-          throw new Error("Erreur lors du chargement des données.");
+        if (DEMO_MODE) {
+          orders = generateDemoOrders(parseInt(days));
+          inventory = generateDemoInventory();
+        } else {
+          const [ordersRes, inventoryRes] = await Promise.all([
+            fetch(`/api/amazon/orders?days=${days}`),
+            fetch(`/api/amazon/inventory`),
+          ]);
+
+          if (!ordersRes.ok || !inventoryRes.ok) {
+            throw new Error("Erreur lors du chargement des données.");
+          }
+
+          const ordersData = await ordersRes.json();
+          const inventoryData = await inventoryRes.json();
+          orders = ordersData.orders;
+          inventory = inventoryData.inventory;
         }
-
-        const { orders } = await ordersRes.json();
-        const { inventory } = await inventoryRes.json();
 
         const { kpis: computedKpis, topProducts: computed } = aggregateOrders(
           orders ?? [],
-          inventory ?? []
+          inventory ?? [],
         );
         setKpis(computedKpis);
         setTopProducts(computed);
@@ -242,6 +252,13 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 p-6 space-y-6">
+      {/* ── Demo Banner ── */}
+      {DEMO_MODE && (
+        <div className="rounded-lg bg-indigo-600/20 border border-indigo-500/40 px-4 py-2.5 text-sm text-indigo-300 flex items-center gap-2">
+          <span className="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">Demo</span>
+          Donnees fictives — Connectez votre compte Amazon pour voir vos vraies donnees
+        </div>
+      )}
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>

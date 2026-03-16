@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency, formatNumber } from "@/lib/utils"
+import { DEMO_MODE, generateDemoOrders, generateDemoInventory } from "@/lib/demo-data"
 
 interface Order {
   order_id: string
@@ -74,20 +75,28 @@ export default function VelocityPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [ordersRes, inventoryRes] = await Promise.all([
-          fetch("/api/amazon/orders?days=30"),
-          fetch("/api/amazon/inventory"),
-        ])
+        let orders: Order[]
+        let inventory: InventoryItem[]
 
-        if (!ordersRes.ok || !inventoryRes.ok) {
-          throw new Error("Failed to fetch data")
+        if (DEMO_MODE) {
+          orders = generateDemoOrders(30) as unknown as Order[]
+          inventory = generateDemoInventory() as unknown as InventoryItem[]
+        } else {
+          const [ordersRes, inventoryRes] = await Promise.all([
+            fetch("/api/amazon/orders?days=30"),
+            fetch("/api/amazon/inventory"),
+          ])
+
+          if (!ordersRes.ok || !inventoryRes.ok) {
+            throw new Error("Failed to fetch data")
+          }
+
+          const ordersData: { orders: Order[] } = await ordersRes.json()
+          const inventoryData: { inventory: InventoryItem[] } = await inventoryRes.json()
+
+          orders = ordersData.orders
+          inventory = inventoryData.inventory
         }
-
-        const ordersData: { orders: Order[] } = await ordersRes.json()
-        const inventoryData: { inventory: InventoryItem[] } = await inventoryRes.json()
-
-        const orders = ordersData.orders
-        const inventory = inventoryData.inventory
 
         const now = new Date()
         const cutoff7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
